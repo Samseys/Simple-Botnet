@@ -3,4 +3,6 @@ dist
 env
 request.http
 botnet-client.spec
+botnet-server.spec
 bots.sqlite
+test.rest

