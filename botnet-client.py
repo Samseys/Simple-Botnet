@@ -1,4 +1,5 @@
 from flask import Flask, request
+from werkzeug.serving import make_server
 import platform
 import psutil
 import getmac
@@ -43,7 +44,8 @@ class FlaskServer:
         self.port = port
 
     def run(self):
-        self.app.run(host="0.0.0.0", port=self.port, threaded = False, debug = False, use_reloader = False)
+        server = make_server('0.0.0.0', self.port, self.app)
+        self.app.run(host="0.0.0.0", threaded = True, debug = False, use_reloader = False)
 
     @app.route('/systeminfo', methods = ['GET'])
     def getSystemInfo():
@@ -75,12 +77,6 @@ class FlaskServer:
                 pass
 
         return "", 200
-    
-    @app.route("/block")
-    def block():
-        print("xd")
-        while(True):
-            continue
         
 if __name__ == "__main__":
     main()
