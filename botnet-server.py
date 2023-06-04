@@ -122,6 +122,9 @@ class CommandShell(cmd.Cmd):
         else:
             print("Syntax: ddos <target> [seconds]")
             
+    def do_clear(self, args):
+        'Clear the CLI'
+        os.system("clear")
 
 
 def split_string(string):
