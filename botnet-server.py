@@ -14,7 +14,7 @@ flaskServer = None
 db = None
 
 def main():
-    global server, db
+    global flaskServer, db
     db = DB()
     db.execute("UPDATE bots SET status = 'offline'")
     flaskServer = FlaskServer(5000)
@@ -158,6 +158,7 @@ class FlaskServer:
         return "", 200
 
 class DB:
+    lock = threading.Lock()
     con = sqlite3.connect('./bots.sqlite', check_same_thread=False)
 
     def __init__(self):
@@ -179,15 +180,16 @@ class DB:
         self.con.commit()
     
     def execute(self, query: str, *arg):
-        cur = self.con.cursor()
-        cur.execute("PRAGMA foreign_keys = ON;")
-        res = cur.execute(query, arg)
-        rows = res.fetchall()
-        cur.close()
-        self.con.commit()
-        if (len(rows) > 0):
-            return [dict(i) for i in rows]
-        return None
+        with self.lock:
+            cur = self.con.cursor()
+            cur.execute("PRAGMA foreign_keys = ON;")
+            res = cur.execute(query, arg)
+            rows = res.fetchall()
+            cur.close()
+            self.con.commit()
+            if (len(rows) > 0):
+                return [dict(i) for i in rows] 
+            return None
 
     def getAllBots(self):
         return self.execute("SELECT * FROM bots")
