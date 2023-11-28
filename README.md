@@ -1,2 +1,2 @@
 # Simple-Botnet
-È una botnet.
+Semplice Botnet per l'esame di Sicurezza
